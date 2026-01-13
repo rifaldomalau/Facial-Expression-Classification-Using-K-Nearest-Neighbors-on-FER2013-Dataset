@@ -1,131 +1,88 @@
 import streamlit as st
-import cv2
 import numpy as np
+import cv2
+import os
 import joblib
 from skimage.feature import hog
+from PIL import Image
 
-# ===============================
-# Page Config
-# ===============================
-st.set_page_config(
-    page_title="Facial Expression Recognition (KNN)",
-    page_icon="😃",
-    layout="centered"
-)
+# ======================================================
+# PAGE CONFIG
+# ======================================================
+st.set_page_config(page_title="Facial Expression Recognition (KNN)", layout="centered")
 
-# ===============================
-# Load model & preprocessors
-# ===============================
-model = joblib.load("model_knn.pkl")
-scaler = joblib.load("scaler.pkl")
-pca = joblib.load("pca.pkl")
-labels = np.load("labels.npy", allow_pickle=True)
+st.title("😃 Facial Expression Recognition")
+st.write("KNN + HOG + PCA (FER2013 Dataset)")
 
-# ===============================
-# HOG extractor
-# ===============================
-def extract_hog(image):
-    return hog(
-        image,
+# ======================================================
+# PATH HANDLING (Streamlit Cloud Safe)
+# ======================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def load_models():
+    try:
+        model = joblib.load(os.path.join(BASE_DIR, "model_knn.pkl"))
+        scaler = joblib.load(os.path.join(BASE_DIR, "scaler.pkl"))
+        pca = joblib.load(os.path.join(BASE_DIR, "pca.pkl"))
+        return model, scaler, pca
+    except Exception as e:
+        st.error("❌ Failed to load model files")
+        st.exception(e)
+        st.stop()
+
+model, scaler, pca = load_models()
+
+# ======================================================
+# CLASS LABELS (FER2013)
+# ======================================================
+emotion_labels = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
+
+# ======================================================
+# IMAGE PREPROCESSING
+# ======================================================
+def preprocess_image(img):
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = cv2.resize(img, (48, 48))
+    img = img / 255.0
+
+    features = hog(
+        img,
         orientations=9,
         pixels_per_cell=(8, 8),
         cells_per_block=(2, 2),
-        block_norm='L2-Hys'
+        block_norm="L2-Hys"
     )
 
-# ===============================
-# Sidebar (Project Info)
-# ===============================
-st.sidebar.title("🧠 Project Info")
-st.sidebar.write("""
-**Facial Expression Recognition**  
-Using **K-Nearest Neighbors (KNN)**  
+    return features.reshape(1, -1)
 
-This system classifies facial expressions into:
+# ======================================================
+# STREAMLIT UI
+# ======================================================
+uploaded_file = st.file_uploader("Upload a face image", type=["jpg", "jpeg", "png"])
 
-- 😡 Angry  
-- 🤢 Disgust  
-- 😨 Fear  
-- 😄 Happy  
-- 😐 Neutral  
-- 😢 Sad  
-- 😲 Surprise  
+if uploaded_file is not None:
+    img = Image.open(uploaded_file).convert("RGB")
+    img_np = np.array(img)
 
-**Dataset:** FER2013 (Kaggle)  
-**Features:** HOG  
-**Classifier:** KNN  
-""")
+    st.image(img, caption="Uploaded Image", use_container_width=True)
 
-# ===============================
-# Main Title
-# ===============================
-st.title("😃 Facial Expression Recognition (KNN)")
-st.write(
-    "Upload a face image and this system will predict "
-    "the **emotion** using a **KNN-based machine learning model**."
-)
-
-st.markdown("---")
-
-# ===============================
-# Instructions
-# ===============================
-st.subheader("📸 How to use")
-st.write("""
-1. Upload a face image (JPG / PNG).  
-2. The system will convert it to grayscale and extract facial features.  
-3. KNN will compare your face with thousands of samples in the FER dataset.  
-4. The predicted emotion will be displayed.
-""")
-
-# ===============================
-# Upload
-# ===============================
-uploaded = st.file_uploader("📤 Upload Face Image", type=["jpg", "png", "jpeg"])
-
-if uploaded:
-    file_bytes = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("🖼 Uploaded Image")
-        st.image(image, use_column_width=True)
-
-    # ===============================
     # Preprocess
-    # ===============================
-    image = cv2.resize(image, (48,48))
-    image = image / 255.0
-    features = extract_hog(image)
+    features = preprocess_image(img_np)
 
-    features = features.reshape(1, -1)
+    # Scale + PCA
     features = scaler.transform(features)
     features = pca.transform(features)
 
-    # ===============================
-    # Prediction
-    # ===============================
-    pred = model.predict(features)[0]
-    probs = model.predict_proba(features)[0]
-    confidence = probs[pred] * 100
+    # Predict
+    prediction = model.predict(features)[0]
+    probabilities = model.predict_proba(features)[0]
 
-    with col2:
-        st.subheader("🤖 Prediction")
-        st.success(f"**{labels[pred]}**")
-        st.write(f"Confidence: **{confidence:.2f}%**")
+    st.subheader("Prediction:")
+    st.success(f"**{emotion_labels[prediction]}**")
 
-        st.subheader("📊 Class Probabilities")
-        for i, label in enumerate(labels):
-            st.progress(float(probs[i]))
-            st.write(f"{label}: {probs[i]*100:.2f}%")
+    st.subheader("Confidence:")
+    for i, prob in enumerate(probabilities):
+        st.write(f"{emotion_labels[i]} : {prob:.3f}")
 
-# ===============================
-# Footer
-# ===============================
-st.markdown("---")
-st.markdown(
-    "<center>📌 Built with KNN, HOG & FER2013 Dataset</center>",
-    unsafe_allow_html=True
-)
+else:
+    st.info("👆 Upload a face image to get prediction.")
