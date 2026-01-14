@@ -6,7 +6,7 @@ from PIL import Image
 from skimage.feature import hog
 
 # =========================
-# CONFIG
+# PAGE CONFIG
 # =========================
 st.set_page_config(
     page_title="Facial Expression Recognition (KNN)",
@@ -15,16 +15,19 @@ st.set_page_config(
 )
 
 # =========================
-# LOAD MODEL
+# LOAD MODELS
 # =========================
 @st.cache_resource
-def load_model():
-    return joblib.load("model_knn.pkl")
+def load_artifacts():
+    knn = joblib.load("model_knn.pkl")
+    scaler = joblib.load("scaler.pkl")
+    pca = joblib.load("pca.pkl")
+    return knn, scaler, pca
 
-model = load_model()
+knn_model, scaler, pca = load_artifacts()
 
 # =========================
-# EMOTION LABELS (FER2013)
+# EMOTION LABELS
 # =========================
 EMOTIONS = {
     0: "Angry 😠",
@@ -57,22 +60,22 @@ def extract_features(image):
 # UI
 # =========================
 st.title("Facial Expression Recognition (KNN)")
-st.write(
+st.markdown(
     """
-    Aplikasi ini menggunakan **K-Nearest Neighbors (KNN)**  
-    dengan **HOG (Histogram of Oriented Gradients)**  
-    untuk memprediksi **ekspresi wajah manusia**.
+    ### 📌 Tentang Aplikasi
+    - Dataset: **FER2013**
+    - Algoritma: **K-Nearest Neighbors (KNN)**
+    - Feature Extraction: **HOG**
+    - Dimensionality Reduction: **PCA**
 
-    📌 Dataset: **FER2013**  
-    📌 Input: Gambar wajah (bebas ukuran)  
-    📌 Output: Kategori ekspresi emosi
+    Upload **gambar wajah**, lalu sistem akan memprediksi **emosi**.
     """
 )
 
-st.markdown("---")
+st.divider()
 
 uploaded_file = st.file_uploader(
-    "📤 Upload gambar wajah",
+    "📤 Upload gambar wajah (jpg / png)",
     type=["jpg", "jpeg", "png"]
 )
 
@@ -87,7 +90,9 @@ if uploaded_file is not None:
 
     with st.spinner("🔍 Menganalisis ekspresi..."):
         features = extract_features(image_np)
-        prediction = model.predict(features)[0]
+        features = scaler.transform(features)
+        features = pca.transform(features)
+        prediction = knn_model.predict(features)[0]
 
     st.success(f"### Ekspresi Terdeteksi: **{EMOTIONS[prediction]}**")
 
