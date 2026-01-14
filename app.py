@@ -1,52 +1,50 @@
 import streamlit as st
 import numpy as np
 import cv2
-import os
 import joblib
-from skimage.feature import hog
 from PIL import Image
+from skimage.feature import hog
 
-# ======================================================
-# PAGE CONFIG
-# ======================================================
-st.set_page_config(page_title="Facial Expression Recognition (KNN)", layout="centered")
+# =========================
+# CONFIG
+# =========================
+st.set_page_config(
+    page_title="Facial Expression Recognition (KNN)",
+    page_icon="😀",
+    layout="centered"
+)
 
-st.title("😃 Facial Expression Recognition")
-st.write("KNN + HOG + PCA (FER2013 Dataset)")
+# =========================
+# LOAD MODEL
+# =========================
+@st.cache_resource
+def load_model():
+    return joblib.load("model_knn.pkl")
 
-# ======================================================
-# PATH HANDLING (Streamlit Cloud Safe)
-# ======================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+model = load_model()
 
-def load_models():
-    try:
-        model = joblib.load(os.path.join(BASE_DIR, "model_knn.pkl"))
-        scaler = joblib.load(os.path.join(BASE_DIR, "scaler.pkl"))
-        pca = joblib.load(os.path.join(BASE_DIR, "pca.pkl"))
-        return model, scaler, pca
-    except Exception as e:
-        st.error("❌ Failed to load model files")
-        st.exception(e)
-        st.stop()
+# =========================
+# EMOTION LABELS (FER2013)
+# =========================
+EMOTIONS = {
+    0: "Angry 😠",
+    1: "Disgust 🤢",
+    2: "Fear 😨",
+    3: "Happy 😄",
+    4: "Sad 😢",
+    5: "Surprise 😲",
+    6: "Neutral 😐"
+}
 
-model, scaler, pca = load_models()
-
-# ======================================================
-# CLASS LABELS (FER2013)
-# ======================================================
-emotion_labels = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
-
-# ======================================================
-# IMAGE PREPROCESSING
-# ======================================================
-def preprocess_image(img):
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img = cv2.resize(img, (48, 48))
-    img = img / 255.0
+# =========================
+# FEATURE EXTRACTION
+# =========================
+def extract_features(image):
+    image = cv2.resize(image, (48, 48))
+    image = image / 255.0
 
     features = hog(
-        img,
+        image,
         orientations=9,
         pixels_per_cell=(8, 8),
         cells_per_block=(2, 2),
@@ -55,34 +53,43 @@ def preprocess_image(img):
 
     return features.reshape(1, -1)
 
-# ======================================================
-# STREAMLIT UI
-# ======================================================
-uploaded_file = st.file_uploader("Upload a face image", type=["jpg", "jpeg", "png"])
+# =========================
+# UI
+# =========================
+st.title("Facial Expression Recognition (KNN)")
+st.write(
+    """
+    Aplikasi ini menggunakan **K-Nearest Neighbors (KNN)**  
+    dengan **HOG (Histogram of Oriented Gradients)**  
+    untuk memprediksi **ekspresi wajah manusia**.
 
+    📌 Dataset: **FER2013**  
+    📌 Input: Gambar wajah (bebas ukuran)  
+    📌 Output: Kategori ekspresi emosi
+    """
+)
+
+st.markdown("---")
+
+uploaded_file = st.file_uploader(
+    "📤 Upload gambar wajah",
+    type=["jpg", "jpeg", "png"]
+)
+
+# =========================
+# PREDICTION
+# =========================
 if uploaded_file is not None:
-    img = Image.open(uploaded_file).convert("RGB")
-    img_np = np.array(img)
+    image = Image.open(uploaded_file).convert("L")
+    image_np = np.array(image)
 
-    st.image(img, caption="Uploaded Image", use_container_width=True)
+    st.image(image, caption="Uploaded Image", width=200)
 
-    # Preprocess
-    features = preprocess_image(img_np)
+    with st.spinner("🔍 Menganalisis ekspresi..."):
+        features = extract_features(image_np)
+        prediction = model.predict(features)[0]
 
-    # Scale + PCA
-    features = scaler.transform(features)
-    features = pca.transform(features)
-
-    # Predict
-    prediction = model.predict(features)[0]
-    probabilities = model.predict_proba(features)[0]
-
-    st.subheader("Prediction:")
-    st.success(f"**{emotion_labels[prediction]}**")
-
-    st.subheader("Confidence:")
-    for i, prob in enumerate(probabilities):
-        st.write(f"{emotion_labels[i]} : {prob:.3f}")
+    st.success(f"### Ekspresi Terdeteksi: **{EMOTIONS[prediction]}**")
 
 else:
-    st.info("👆 Upload a face image to get prediction.")
+    st.info("⬆️ Silakan upload gambar wajah untuk mulai prediksi.")
