@@ -1,100 +1,80 @@
 import streamlit as st
-import numpy as np
 import cv2
+import numpy as np
 import joblib
-from PIL import Image
 from skimage.feature import hog
 
-# =========================
-# PAGE CONFIG
-# =========================
-st.set_page_config(
-    page_title="Facial Expression Recognition (KNN)",
-    page_icon="😀",
-    layout="centered"
-)
+# Konfigurasi Halaman
+st.set_page_config(page_title="Deteksi Ekspresi Wajah", layout="centered")
 
-# =========================
-# LOAD MODELS
-# =========================
+# 1. Load Model dan Helper (PCA, Scaler)
 @st.cache_resource
-def load_artifacts():
-    knn = joblib.load("model_knn.pkl")
+def load_models():
+    model = joblib.load("model_knn.pkl")
     scaler = joblib.load("scaler.pkl")
     pca = joblib.load("pca.pkl")
-    return knn, scaler, pca
+    return model, scaler, pca
 
-knn_model, scaler, pca = load_artifacts()
+try:
+    knn_model, scaler, pca = load_models()
+    labels = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
+except Exception as e:
+    st.error(f"Gagal memuat model. Pastikan file .pkl tersedia. Error: {e}")
 
-# =========================
-# EMOTION LABELS
-# =========================
-EMOTIONS = {
-    0: "Angry 😠",
-    1: "Disgust 🤢",
-    2: "Fear 😨",
-    3: "Happy 😄",
-    4: "Sad 😢",
-    5: "Surprise 😲",
-    6: "Neutral 😐"
-}
-
-# =========================
-# FEATURE EXTRACTION
-# =========================
+# 2. Fungsi Ekstraksi Fitur (Sama dengan di Notebook)
 def extract_features(image):
-    image = cv2.resize(image, (48, 48))
-    image = image / 255.0
-
+    # Resize ke 48x48 sesuai training
+    img_resized = cv2.resize(image, (48, 48))
+    # Normalisasi
+    img_norm = img_resized / 255.0
+    # Fitur HOG
     features = hog(
-        image,
-        orientations=9,
-        pixels_per_cell=(8, 8),
-        cells_per_block=(2, 2),
-        block_norm="L2-Hys"
+        img_norm, 
+        orientations=9, 
+        pixels_per_cell=(8, 8), 
+        cells_per_block=(2, 2), 
+        block_norm='L2-Hys'
     )
-
     return features.reshape(1, -1)
 
-# =========================
-# UI
-# =========================
-st.title("Facial Expression Recognition (KNN)")
-st.markdown(
-    """
-    ### 📌 Tentang Aplikasi
-    - Dataset: **FER2013**
-    - Algoritma: **K-Nearest Neighbors (KNN)**
-    - Feature Extraction: **HOG**
-    - Dimensionality Reduction: **PCA**
+# UI Streamlit
+st.title("😊 Klasifikasi Ekspresi Wajah")
+st.write("Unggah foto wajah untuk mendeteksi emosinya.")
 
-    Upload **gambar wajah**, lalu sistem akan memprediksi **emosi**.
-    """
-)
+uploaded_file = st.file_uploader("Pilih gambar...", type=["jpg", "jpeg", "png"])
 
-st.divider()
-
-uploaded_file = st.file_uploader(
-    "📤 Upload gambar wajah (jpg / png)",
-    type=["jpg", "jpeg", "png"]
-)
-
-# =========================
-# PREDICTION
-# =========================
 if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("L")
-    image_np = np.array(image)
-
-    st.image(image, caption="Uploaded Image", width=200)
-
-    with st.spinner("🔍 Menganalisis ekspresi..."):
-        features = extract_features(image_np)
-        features = scaler.transform(features)
-        features = pca.transform(features)
-        prediction = knn_model.predict(features)[0]
-
-    st.success(f"### Ekspresi Terdeteksi: **{EMOTIONS[prediction]}**")
-
-else:
-    st.info("⬆️ Silakan upload gambar wajah untuk mulai prediksi.")
+    # Konversi file unggahan ke OpenCV format
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
+    
+    if image is not None:
+        # Tampilkan Gambar
+        st.image(image, caption='Gambar yang diunggah', use_column_width=True, channels="GRAY")
+        
+        if st.button("Prediksi Ekspresi"):
+            with st.spinner('Menganalisis...'):
+                # 1. Ekstraksi HOG
+                features = extract_features(image)
+                
+                # 2. Scaling
+                scaled_features = scaler.transform(features)
+                
+                # 3. PCA
+                pca_features = pca.transform(scaled_features)
+                
+                # 4. Prediksi
+                prediction = knn_model.predict(pca_features)
+                prediction_proba = knn_model.predict_proba(pca_features)
+                
+                result = labels[prediction[0]]
+                
+                # Tampilkan Hasil
+                st.success(f"Hasil Prediksi: **{result.upper()}**")
+                
+                # Tampilkan Probabilitas
+                st.write("### Probabilitas:")
+                for i, label in enumerate(labels):
+                    st.write(f"- {label}: {prediction_proba[0][i]*100:.2f}%")
+    else:
+        st.error("Gagal membaca gambar.")
